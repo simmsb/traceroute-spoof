@@ -1,0 +1,3 @@
+[workspace]
+members = ["funny-traceroute-aya", "funny-traceroute-aya-common", "xtask"]
+resolver = "2"

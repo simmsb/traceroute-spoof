@@ -1,0 +1,25 @@
+[package]
+name = "funny-traceroute-aya-ebpf"
+version = "0.1.0"
+edition = "2018"
+
+[dependencies]
+aya-bpf = { git = "http://github.com/aya-rs/aya", branch = "main" }
+jnet = { git = "https://github.com/simmsb/jnet.git", rev = "2b5c94b0588bcdaf70eb058b6bd8641433250c8a" }
+funny-traceroute-aya-common = { path = "../funny-traceroute-aya-common" }
+
+[[bin]]
+name = "funny-traceroute-aya"
+path = "src/main.rs"
+
+[profile.dev]
+panic = "abort"
+debug = 1
+opt-level = 2
+overflow-checks = false
+
+[profile.release]
+panic = "abort"
+
+[workspace]
+members = []
