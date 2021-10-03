@@ -6,6 +6,7 @@ publish = false
 
 [dependencies]
 aya = { git = "https://github.com/aya-rs/aya", branch="main", features=["async_tokio"] }
+# aya-log = { git = "https://github.com/aya-rs/aya-log", branch = "main" }
 funny-traceroute-aya-common = { path = "../funny-traceroute-aya-common", features=["userspace"] }
 anyhow = "1.0.42"
 ctrlc = "3.2"
@@ -14,6 +15,7 @@ jnet = { git = "https://github.com/simmsb/jnet.git", rev = "2b5c94b0588bcdaf70eb
 structopt = { version = "0.3"}
 bytes = "1.1.0"
 tokio = { version = "1.12.0", features = ["rt", "signal", "time", "io-util", "net", "sync"] }
+simplelog = "0.10.2"
 
 [[bin]]
 name = "funny-traceroute-aya"

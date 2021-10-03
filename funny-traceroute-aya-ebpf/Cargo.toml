@@ -5,8 +5,12 @@ edition = "2018"
 
 [dependencies]
 aya-bpf = { git = "http://github.com/aya-rs/aya", branch = "main" }
-jnet = { git = "https://github.com/simmsb/jnet.git", rev = "2b5c94b0588bcdaf70eb058b6bd8641433250c8a" }
+# aya-log-ebpf = { git = "https://github.com/aya-rs/aya-log", branch = "main" }
+ufmt = "0.1"
+jnet = { git = "https://github.com/simmsb/jnet.git", rev = "40bbc48254c88d669cbdc95bf2a5b86552cb689a" }
+# jnet = { path = "../../jnet/" }
 funny-traceroute-aya-common = { path = "../funny-traceroute-aya-common" }
+byteorder = { version = "1.4.3", default-features = false }
 
 [[bin]]
 name = "funny-traceroute-aya"

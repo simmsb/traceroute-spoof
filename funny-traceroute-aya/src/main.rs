@@ -1,12 +1,9 @@
+use aya::maps::Array;
 use aya::programs::{Xdp, XdpFlags};
-use aya::util::online_cpus;
-use aya::Bpf;
-use bytes::BytesMut;
-use std::{
-    convert::{TryFrom, TryInto},
-    sync::atomic::{AtomicBool, Ordering},
-    sync::Arc,
-};
+use aya::{Bpf, Pod};
+// use aya_log::BpfLogger;
+// use simplelog::{ColorChoice, ConfigBuilder, LevelFilter, TermLogger, TerminalMode};
+use std::convert::{TryFrom, TryInto};
 use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
@@ -17,49 +14,63 @@ struct Opt {
     iface: String,
 }
 
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct MyAddr([u8; 16]);
+
+unsafe impl Pod for MyAddr {}
+
+static FUNNY_IPS: &[[u8; 16]] = &[
+    [32, 1, 4, 112, 31, 9, 2, 7, 0, 0, 0, 0, 0, 0, 0, 5],
+    [32, 1, 4, 112, 31, 9, 2, 7, 0, 0, 0, 0, 0, 0, 0, 6],
+    [32, 1, 4, 112, 31, 9, 2, 7, 0, 0, 0, 0, 0, 0, 0, 7],
+    [32, 1, 4, 112, 31, 9, 2, 7, 0, 0, 0, 0, 0, 0, 0, 8],
+    [32, 1, 4, 112, 31, 9, 2, 7, 0, 0, 0, 0, 0, 0, 0, 9],
+    [32, 1, 4, 112, 31, 9, 2, 7, 0, 0, 0, 0, 0, 0, 0, 10],
+    [32, 1, 4, 112, 31, 9, 2, 7, 0, 0, 0, 0, 0, 0, 0, 11],
+    [32, 1, 4, 112, 31, 9, 2, 7, 0, 0, 0, 0, 0, 0, 0, 12],
+    [32, 1, 4, 112, 31, 9, 2, 7, 0, 0, 0, 0, 0, 0, 0, 13],
+    [32, 1, 4, 112, 31, 9, 2, 7, 0, 0, 0, 0, 0, 0, 0, 14],
+    [32, 1, 4, 112, 31, 9, 2, 7, 0, 0, 0, 0, 0, 0, 0, 15],
+    [32, 1, 4, 112, 31, 9, 2, 7, 0, 0, 0, 0, 0, 0, 0, 16],
+    [32, 1, 4, 112, 31, 9, 2, 7, 0, 0, 0, 0, 0, 0, 0, 17],
+    [32, 1, 4, 112, 31, 9, 2, 7, 0, 0, 0, 0, 0, 0, 0, 18],
+    [32, 1, 4, 112, 31, 9, 2, 7, 0, 0, 0, 0, 0, 0, 0, 19],
+    [32, 1, 4, 112, 31, 9, 2, 7, 0, 0, 0, 0, 0, 0, 0, 20],
+    [32, 1, 4, 112, 31, 9, 2, 7, 0, 0, 0, 0, 0, 0, 0, 21],
+    [32, 1, 4, 112, 31, 9, 2, 7, 0, 0, 0, 0, 0, 0, 0, 22],
+    [32, 1, 4, 112, 31, 9, 2, 7, 0, 0, 0, 0, 0, 0, 0, 23],
+];
+
 #[tokio::main]
 pub async fn main() -> Result<(), anyhow::Error> {
     let opt = Opt::from_args();
     let mut bpf = Bpf::load_file(&opt.path)?;
 
+    // BpfLogger::init(
+    //     &mut bpf,
+    //     TermLogger::new(
+    //         LevelFilter::Trace,
+    //         ConfigBuilder::new()
+    //             .set_target_level(LevelFilter::Error)
+    //             .set_location_level(LevelFilter::Error)
+    //             .build(),
+    //         TerminalMode::Mixed,
+    //         ColorChoice::Auto,
+    //     ),
+    // )
+    // .unwrap();
+
+    let mut array: Array<_, MyAddr> = Array::try_from(bpf.map_mut("REPLIES")?)?;
+
+    for (i, ip) in FUNNY_IPS.iter().enumerate() {
+        array.set(i as u32, MyAddr(*ip), 0)?;
+    }
+
     let program: &mut Xdp = bpf.program_mut("funny_traceroute_aya")?.try_into()?;
     program.load()?;
     program.attach(&opt.iface, XdpFlags::SKB_MODE)?;
     // program.attach(&opt.iface, XdpFlags::SKB_MODE | XdpFlags::REPLACE | XdpFlags::UPDATE_IF_NOEXIST)?;
-
-    let running = Arc::new(AtomicBool::new(true));
-    let r = running.clone();
-
-    ctrlc::set_handler(move || {
-        r.store(false, Ordering::SeqCst);
-    })
-    .expect("Error setting Ctrl-C handler");
-
-    let mut perf_array =
-        aya::maps::perf::AsyncPerfEventArray::try_from(bpf.map_mut("TRACE_PACKETS")?)?;
-
-    for cpu_id in online_cpus()? {
-        let mut buf = perf_array.open(cpu_id, None)?;
-
-        tokio::spawn(async move {
-            // println!("starting monitor on {}", cpu_id);
-
-            let mut buffers = (0..10)
-                .map(|_| BytesMut::with_capacity(1600))
-                .collect::<Vec<_>>();
-
-            loop {
-                let events = buf.read_events(&mut buffers).await.unwrap();
-                println!("wao");
-
-                for i in 0..events.read {
-                    let buf: &[u8] = buffers[i].as_ref();
-
-                    println!("heya");
-                }
-            }
-        });
-    }
 
     println!("Waiting for Ctrl-C...");
     tokio::signal::ctrl_c().await?;
