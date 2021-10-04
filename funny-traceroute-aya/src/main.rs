@@ -12,6 +12,8 @@ struct Opt {
     path: String,
     #[structopt(short, long)]
     iface: String,
+    #[structopt(short, long)]
+    dst: std::net::Ipv6Addr,
 }
 
 #[repr(C)]
@@ -66,6 +68,9 @@ pub async fn main() -> Result<(), anyhow::Error> {
     for (i, ip) in FUNNY_IPS.iter().enumerate() {
         array.set(i as u32, MyAddr(*ip), 0)?;
     }
+
+    let mut dst: Array<_, MyAddr> = Array::try_from(bpf.map_mut("DST_ADDR")?)?;
+    dst.set(0, MyAddr(opt.dst.octets()), 0)?;
 
     let program: &mut Xdp = bpf.program_mut("funny_traceroute_aya")?.try_into()?;
     program.load()?;
