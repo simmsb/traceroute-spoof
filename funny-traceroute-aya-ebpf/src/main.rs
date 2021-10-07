@@ -8,23 +8,22 @@ use aya_bpf::{
     bindings::xdp_action,
     helpers::bpf_xdp_adjust_head,
     macros::{map, xdp},
-    maps::Array,
+    maps::HashMap,
     programs::XdpContext,
     BpfContext,
 };
+
+use funny_traceroute_aya_common::{MyAddr, ResponseKey};
 
 const ETHER: usize = 14;
 const IPV6: usize = 40;
 const ICMPV6: usize = 8;
 
-// #[map(name = "TRACE_PACKETS")]
-// static mut TRACE_PACKETS: PerfMap<()> = PerfMap::with_max_entries(1024, 0);
+#[map(name = "DEST_ADDRS")]
+static mut DEST_ADDRS: HashMap<MyAddr, u8> = HashMap::with_max_entries(255, 0);
 
 #[map(name = "REPLIES")]
-static mut REPLIES: Array<[u8; 16]> = Array::with_max_entries(255, 0);
-
-#[map(name = "DST_ADDR")]
-static mut DST_ADDR: Array<[u8; 16]> = Array::with_max_entries(1, 0);
+static mut REPLIES: HashMap<ResponseKey, MyAddr> = HashMap::with_max_entries(1024, 0);
 
 #[xdp(name = "funny_traceroute_aya")]
 pub fn funny_traceroute_aya(ctx: XdpContext) -> u32 {
@@ -144,10 +143,13 @@ fn try_funny_traceroute_aya(ctx: XdpContext) -> Result<u32, u32> {
 
     let ipv6 = jnet::ipv6::Packet::parse(eth.payload()).map_err(|_| xdp_action::XDP_PASS)?;
 
-    // we could probably filter on the UDP port number or ICMP type, but I'm lazy
-    if ipv6.get_destination().0 != *unsafe { DST_ADDR.get(0).ok_or(xdp_action::XDP_PASS)? } {
-        return Err(xdp_action::XDP_PASS);
-    }
+    let ipv6_nx: u8 = ipv6.get_next_header().into();
+
+    let reply_table_idx = unsafe {
+        *DEST_ADDRS
+            .get(&MyAddr(ipv6.get_destination().0))
+            .ok_or(xdp_action::XDP_PASS)?
+    };
 
     let payload_len = ipv6.get_length() as usize;
 
@@ -159,10 +161,14 @@ fn try_funny_traceroute_aya(ctx: XdpContext) -> Result<u32, u32> {
         return Err(xdp_action::XDP_PASS);
     }
 
-    let ipv6_out_src = unsafe {
-        *REPLIES
-            .get(ipv6.get_hop_limit() as u32)
-            .ok_or(xdp_action::XDP_PASS)?
+    let response_key = ResponseKey {
+        idx: reply_table_idx,
+        ttl: ipv6.get_hop_limit(),
+    };
+
+    let (ipv6_out_src, has_reached_end) = match unsafe { REPLIES.get(&response_key) } {
+        Some(v) => (jnet::ipv6::Addr(v.0), false),
+        None => (ipv6.get_destination(), true),
     };
 
     let eth_out_dst = eth.get_source();
@@ -170,15 +176,26 @@ fn try_funny_traceroute_aya(ctx: XdpContext) -> Result<u32, u32> {
 
     let ipv6_out_dst = ipv6.get_source();
 
+    let (icmp_type, icmp_code) = if has_reached_end {
+        match ipv6_nx {
+            17 => (1, 4),
+            58 => (129, 0),
+            _ => (3, 0),
+        }
+    } else {
+        (3, 0)
+    };
+
+
     let mut sum = 0u32;
-    sum += unsafe { csum_of(ipv6_out_src) };
+    sum += unsafe { csum_of(ipv6_out_src.0) };
     sum += unsafe { csum_of(ipv6_out_dst.0) };
     let l = (ICMPV6 as u16 + IPV6 as u16 + payload_len as u16) as u32;
     sum += l as u32;
 
     sum += 58u32;
 
-    sum += (3u16 << 8) as u32;
+    sum += ((icmp_type as u16) << 8 | icmp_code as u16) as u32;
     sum += body_csum(&ctx, ETHER);
 
     let sum = csum_fold(sum);
@@ -206,12 +223,13 @@ fn try_funny_traceroute_aya(ctx: XdpContext) -> Result<u32, u32> {
     unsafe {
         out_ipv6.set_length(ICMPV6 as u16 + IPV6 as u16 + payload_len as u16);
     }
-    out_ipv6.set_source(jnet::ipv6::Addr(ipv6_out_src));
+    out_ipv6.set_source(ipv6_out_src);
     out_ipv6.set_destination(ipv6_out_dst);
 
     let icmp_pkt = &mut out_eth.free()[(ETHER + IPV6)..];
-    *icmp_pkt.get_mut(0).ok_or(xdp_action::XDP_ABORTED)? = 3;
-    *icmp_pkt.get_mut(1).ok_or(xdp_action::XDP_ABORTED)? = 0;
+
+    *icmp_pkt.get_mut(0).ok_or(xdp_action::XDP_ABORTED)? = icmp_type;
+    *icmp_pkt.get_mut(1).ok_or(xdp_action::XDP_ABORTED)? = icmp_code;
 
     icmp_pkt
         .get_mut(2..4)

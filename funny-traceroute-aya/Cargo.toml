@@ -2,6 +2,7 @@
 name = "funny-traceroute-aya"
 version = "0.1.0"
 edition = "2018"
+authors = ["Ben Simms <ben@bensimms.moe>"]
 publish = false
 
 [dependencies]
@@ -16,6 +17,8 @@ structopt = { version = "0.3"}
 bytes = "1.1.0"
 tokio = { version = "1.12.0", features = ["rt", "signal", "time", "io-util", "net", "sync"] }
 simplelog = "0.10.2"
+serde = { version = "1.0.130", features = ["derive"] }
+serde_yaml = "0.8.21"
 
 [[bin]]
 name = "funny-traceroute-aya"
