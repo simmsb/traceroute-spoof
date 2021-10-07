@@ -176,6 +176,17 @@ fn try_funny_traceroute_aya(ctx: XdpContext) -> Result<u32, u32> {
 
     let ipv6_out_dst = ipv6.get_source();
 
+    let icmp_content: u32 = if ipv6_nx == 58 {
+        ensure_at_least(&ctx, ETHER + IPV6 + ICMPV6)?;
+
+        let pkt = pkt_buf
+            .get(ETHER + IPV6..ETHER + IPV6 + ICMPV6)
+            .ok_or(xdp_action::XDP_PASS)?;
+        NE::read_u32(pkt.get(4..8).ok_or(xdp_action::XDP_PASS)?)
+    } else {
+        0
+    };
+
     let (icmp_type, icmp_code) = if has_reached_end {
         match ipv6_nx {
             17 => (1, 4),
@@ -186,7 +197,6 @@ fn try_funny_traceroute_aya(ctx: XdpContext) -> Result<u32, u32> {
         (3, 0)
     };
 
-
     let mut sum = 0u32;
     sum += unsafe { csum_of(ipv6_out_src.0) };
     sum += unsafe { csum_of(ipv6_out_dst.0) };
@@ -196,6 +206,7 @@ fn try_funny_traceroute_aya(ctx: XdpContext) -> Result<u32, u32> {
     sum += 58u32;
 
     sum += ((icmp_type as u16) << 8 | icmp_code as u16) as u32;
+    sum += unsafe { csum_of(icmp_content.to_be_bytes()) };
     sum += body_csum(&ctx, ETHER);
 
     let sum = csum_fold(sum);
@@ -239,7 +250,7 @@ fn try_funny_traceroute_aya(ctx: XdpContext) -> Result<u32, u32> {
     icmp_pkt
         .get_mut(4..8)
         .ok_or(xdp_action::XDP_ABORTED)?
-        .fill(0);
+        .copy_from_slice(&icmp_content.to_be_bytes()[..]);
 
     Ok(xdp_action::XDP_TX)
 }
